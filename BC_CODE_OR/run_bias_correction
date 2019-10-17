@@ -1,0 +1,6 @@
+    #!/bin/sh
+    idl <<!here
+    .r definitions.pro
+    .r definitions_internal.pro
+    .r run_bias_correction.pro
+    exit

@@ -1,0 +1,9 @@
+    #!/bin/sh
+    idl <<!here
+    .r definitions.pro
+    .r definitions_internal.pro
+    .r functions.pro
+    .r createNCDF_v2.pro
+    .r create1dNCDF.pro 
+    .r idl2latlon_v1.pro
+    exit

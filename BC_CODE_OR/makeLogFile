@@ -1,0 +1,5 @@
+    #!/bin/sh
+    idl <<!here
+    .r definitions.pro
+    .r definitions_internal.pro
+    exit

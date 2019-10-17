@@ -1,0 +1,7 @@
+    #!/bin/sh
+    idl <<!here
+    .r definitions.pro
+    .r definitions_internal.pro
+    .r functions.pro 
+    .r apply_T_cor.pro
+    exit

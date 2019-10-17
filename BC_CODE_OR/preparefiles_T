@@ -1,0 +1,8 @@
+    #!/bin/sh
+    idl <<!here
+    .r definitions.pro
+    .r definitions_internal.pro
+    .r ncdf2idl.pro
+    .r prepareData.pro
+    .r prepareFiles_T.pro
+    exit

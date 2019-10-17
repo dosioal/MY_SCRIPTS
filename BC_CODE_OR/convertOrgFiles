@@ -1,0 +1,11 @@
+    #!/bin/sh
+    idl <<!here
+    .r definitions.pro
+    .r definitions_internal.pro
+    .r create1dNCDF.pro
+    .r createNCDF_v2.pro
+    .r createNCDF_v2_1ts.pro
+    .r idl2latlon_function_v1.pro
+    .r convert_org_data_function.pro
+    .r convertFiles.pro
+    exit

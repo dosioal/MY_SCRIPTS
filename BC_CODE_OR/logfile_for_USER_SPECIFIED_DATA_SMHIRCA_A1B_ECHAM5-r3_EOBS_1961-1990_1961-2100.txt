@@ -1,0 +1,66 @@
+ STATISTICAL BIAS CORRECTION PROCEDURE
+***************************************
+
+ EU WATCH PROJECT
+
+ WORK BLOCK LEADER: S. HAGEMANN
+
+ FILENAME: 
+logfile_for_USER_SPECIFIED_DATA_SMHIRCA_A1B_ECHAM5-r3_EOBS_1961-1990_1961-2100.txt
+ AUTHORS:  C. PIANI AND J. O. HAERTER
+ DATE:     DECEMBER 08, 2009
+
+***************************************
+
+This file contains information on the user specified data for the bias statistical correction.
+
+(*) GENERAL INFORMATION:
+
+Tasks to complete:
+The user is performing a temperature bias correction.
+- T input data should be prepared.
+- T cor. factors should be applied.
+- Output should be written as NETCDF.
+
+General file and data path: /media/disk/POSTPROC/BC_Regional/
+
+(*) OBSERVATIONAL DATA FILES:
+TOTAL PRECIP:     /media/disk/DATA/ENSOBS/ENS_MODELS/rr_0.22deg_rot_v3.0_SMHIRCA_1961-1990.nc
+MEAN TEMPERATURE: /media/disk/DATA/ENSOBS/ENS_MODELS/tg_0.22deg_rot_v3.0_SMHIRCA_1961-1990_K.nc
+MIN TEMPERATURE:  /media/disk/DATA/ENSOBS/ENS_MODELS/tn_0.22deg_rot_v3.0_SMHIRCA_1961-1990_K.nc
+MAX TEMPERATURE:  /media/disk/DATA/ENSOBS/ENS_MODELS/tx_0.22deg_rot_v3.0_SMHIRCA_1961-1990_K.nc
+FORMAT OBS:        1 (0=compressed, 1=latlon, 2=idl saved)
+
+(*) MODEL DATA FILES (CONSTRUCTION):
+TOTAL PRECIP:     /media/disk/DATA/ENSEMBLES_FLOODS/SMHIRCA/A1B_ECHAM5-r3/SMHIRCA_A1B_ECHAM5-r3_DM_25km_1961-1990_pr.nc
+MEAN TEMPERUTURE: /media/disk/DATA/ENSEMBLES_FLOODS/SMHIRCA/A1B_ECHAM5-r3/SMHIRCA_A1B_ECHAM5-r3_DM_25km_1961-1990_tas.nc
+MIN TEMPERATURE:  /media/disk/DATA/ENSEMBLES_FLOODS/SMHIRCA/A1B_ECHAM5-r3/SMHIRCA_A1B_ECHAM5-r3_DM_25km_1961-1990_tasmin.nc
+MAX TEMPERATURE:  /media/disk/DATA/ENSEMBLES_FLOODS/SMHIRCA/A1B_ECHAM5-r3/SMHIRCA_A1B_ECHAM5-r3_DM_25km_1961-1990_tasmax.nc
+
+(*) MODEL DATA FILES (APPLICATION):
+TOTAL PRECIP:     /media/disk/DATA/ENSEMBLES_FLOODS/SMHIRCA/A1B_ECHAM5-r3/SMHIRCA_A1B_ECHAM5-r3_DM_25km_2091-2100_pr.nc
+PRECIP SNOW:      /media/disk/DATA/ENSEMBLES_FLOODS/SMHIRCA/A1B_ECHAM5-r3/SMHIRCA_A1B_ECHAM5-r3_DM_25km_2091-2100_prsn.nc
+MEAN TEMPERATURE: /media/disk/DATA/ENSEMBLES_FLOODS/SMHIRCA/A1B_ECHAM5-r3/SMHIRCA_A1B_ECHAM5-r3_DM_25km_2091-2100_tas.nc
+MIN TEMPERATURE:  /media/disk/DATA/ENSEMBLES_FLOODS/SMHIRCA/A1B_ECHAM5-r3/SMHIRCA_A1B_ECHAM5-r3_DM_25km_2091-2100_tasmin.nc
+MAX TEMPERATURE:  /media/disk/DATA/ENSEMBLES_FLOODS/SMHIRCA/A1B_ECHAM5-r3/SMHIRCA_A1B_ECHAM5-r3_DM_25km_2091-2100_tasmax.nc
+
+FORMAT MODEL CORRECTION:         1 (0=compressed, 1=latlon, 2=idl saved)
+FORMAT MODEL APPLICATION:        1 (0=compressed, 1=latlon, 2=idl saved)
+
+(*) CORRECTION MASK
+Correction Mask File:               /media/disk/DATA/ENSOBS/ENS_MODELS/read_in_SMHIRCA_1961-1990.nc
+Dimensions of correction mask file:      170     190       1
+Number of Points to Correct:               15153
+
+(*) TIME PERIODS
+CONSTRUCTION PERIOD: 1961 - 1990
+DERIVATION PERIOD:   1961 - 1990
+APPLICATION PERIOD:  2091 - 2100
+
+(*) OUTPUT
+Output directory for correction coefficients: /media/disk/POSTPROC/BC_Regional/SMHIRCA_A1B_ECHAM5-r3_EOBS_1961-1990_1961-2100/factors/
+Output to lat lon NETCDF files in directory: /media/disk/POSTPROC/BC_Regional/SMHIRCA_A1B_ECHAM5-r3_EOBS_1961-1990_1961-2100/BC_data/
+Final output for bias corrected time series written to: /media/disk/POSTPROC/BC_Regional/SMHIRCA_A1B_ECHAM5-r3_EOBS_1961-1990_1961-2100/finalOutputData/ .
+
+-----------------------------------------------------------------
+
