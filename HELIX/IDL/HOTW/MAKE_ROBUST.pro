@@ -1,0 +1,844 @@
+PRO MAKE_ROBUST
+DEVICE,decomposed=0
+loadct,39
+!p.background=255
+!p.color=0
+
+; MAKE WSDI - YEARLY
+;=============================================
+VAR='tasmax'
+;VAR='tasmin'
+
+STAT='SM'
+;STAT='WSDI' ; TOTAL N OF DAYS WITH SPELL LENGHT> THRES  DASY (= ETCCDI WSDI)
+;STAT='WSDI_M' ;  MAX WARM SPEL LENGHT
+STAT='HWMId'
+
+DIR_HOME='/media/NAS/LUC/SMHI/LR/'
+RUN=['r1','r2','r3','r4','r5','r6','r7']
+NRUN=N_ELEMENTS(RUN)
+
+SCEN=['hist','rcp85'] ;1951-2005'
+YEAR_INI=[1971,2006]
+YEAR_END=[2005,2100]
+
+NSCEN=N_ELEMENTS(SCEN)
+
+NYEARS=30
+
+;===============================================
+NYEAR_1=FIX(YEAR_END(0))-FIX(YEAR_INI(0))+1
+NYEAR_2=FIX(YEAR_END(1))-FIX(YEAR_INI(1))+1
+NYEAR_TOT=NYEAR_1+NYEAR_2
+
+;MASK
+MASK=['AUS', 'AMZ', 'SSA', 'CAM', 'WNA', 'CNA', 'ENA', 'ALA', 'GRL', 'MED', 'NEU', 'WAF', $
+	      'EAF', 'SAF', 'SAH', 'SEA', 'EAS', 'SAS', 'CAS', 'TIB', 'NAS','WORLD' ]
+NMASK=N_ELEMENTS(MASK)
+LON1=[110, -82, -76, -116, -130, -103, -85, -170, -103, -10, -10, -20, $
+       22, -10, -20, 95, 100, 65, 40, 75, 40, -180]
+LON2=[155, -34, -40, -83, -103, -85, -60, -103, -10, 40, 40, 22, $
+      52, 52, 65, 155, 145, 100, 75, 100, 180, 180]
+LAT1=[-45, -20, -56, 10, 30, 30, 25, 60, 50, 30, 48, -12, $
+     -12, -35, 18, -11, 20, 5, 30, 30, 50, -56]
+LAT2=[-11, 12, -20, 30, 60, 50, 50, 72, 85, 48, 75, 18, $
+      18, -12, 30, 20, 50, 30, 50, 50, 70, 85]
+
+;=====================
+;OBS VALUES
+;=====================
+;EOBS  ERA  NCEP
+
+FR2003=[47.48,33.6];,38.2]
+RU2010=[69.16,100];,76.7]
+EA2007=[22.11,21];,28.2]
+USA1980=[!VALUES.F_NaN,39];,48.2]
+
+;MEAN OF OBS
+FR2003=[39.8]
+RU2010=[81.9]
+USA1980=[43.6]
+EA2007=[23.8]
+
+;===============================================
+;LANDMASK AND DIMENSIONS
+;===============================================
+FILE_LAND='lsm-t511_05.nc'
+LM_FILE=DIR_HOME+FILE_LAND
+fileID = NCDF_Open(LM_FILE)
+varID = NCDF_VarID(fileID,'LSM')
+varInfo = NCDF_VarInq(fileID, varID)
+dimIDs = varInfo.dim
+nDims = N_Elements(dimIDs)
+dims_a = IntArr(nDims)
+FOR j=0,nDims-1 DO BEGIN &$
+NCDF_DimInq, fileID, dimIDs[j], dname, dsize &$
+dims_a[j] = dsize &$
+ENDFOR
+nx=dims_a(0)
+ny=dims_a(1)
+NCDF_VARGET,fileID,'LSM',landmask;,count=[nx,ny],offset=[0,0]
+NCDF_CLOSE, fileID
+landmask=REVERSE(landmask,2)
+help,landmask
+
+
+lon=FLTARR(nx,ny)
+lat=FLTARR(nx,ny)
+
+close,1
+openr,1,DIR_HOME+'lon_05.txt'
+WORK=FLTARR(nx)
+FOR iy=0,ny-1 DO BEGIN
+readf,1,work
+lon(*,iy)=WORK
+ENDFOR
+close,1
+lon=REVERSE(lon,2)
+
+openr,1,DIR_HOME+'lat_05.txt'
+WORK=FLTARR(nx)
+FOR iy=0,ny-1 DO BEGIN
+readf,1,work
+lat(*,iy)=WORK
+ENDFOR
+close,1
+lat=REVERSE(lat,2)
+
+WSDI_M_TOT=FLTARR(nx,ny,4,NRUN) ; 1975-2005,1.5C, 2C, 2071-2100
+WSDI_Mx_TOT=FLTARR(nx,ny,4,NRUN) ; 1975-2005,1.5C, 2C, 2071-2100
+WSDI_Y_TOT=FLTARR(nx,ny,4,30,NRUN) ;4 periods of 30 years
+WSDI_Y_TOT_Md=FLTARR(nx,ny,4,30) ;model median of 4 periods of 30 years
+SIG_KS_TOT=FLTARR(nx,ny,3,NRUN) ;KS STAT
+SIG_KS_AGR_05=FLTARR(nx,ny,3) ;KS STAT MODEL AGR
+SIG_KS_AGR_10=FLTARR(nx,ny,3) ;KS STAT MODEL AGR
+
+;===============================================
+; READ MODELS
+;===============================================
+
+ic=0 ;counter for window plot
+;===============================================
+FOR ir=0,NRUN-1 DO BEGIN ;RCM LOOP
+;===============================================
+
+;===============================================
+;DEF OF VARIABLES
+;===============================================
+WSDI_Y_T=FLTARR(nx,ny,NYEAR_TOT)*0.-999.
+
+;DIR MODELS
+DIR_RUN=DIR_HOME+RUN(ir)+'/'+VAR+'/'
+DIR_SM=DIR_RUN+'PP/'+STAT
+
+print,''
+print,'====================================='
+print,'READING ',STAT,' FOR '
+print,'MODEL= ',RUN(ir)
+print,'YSTART ',YEAR_INI(0)
+print,'YEND ',YEAR_END(1)
+PRINT,'NYEAR=',NYEAR_TOT
+print,'====================================='
+
+
+;===============================================
+;CHECK IF IDL FILE WITH WSDI STAT EXISITS ALREADY
+;===============================================
+FOR isc=0,NSCEN-1 DO BEGIN
+FILEO=DIR_SM+'/'+VAR+'_'+SCEN(isc)+'_'+STRMID(YEAR_INI(isc),4,4)+'-'+STRMID(YEAR_END(isc),4,4)+'_'+STAT+'.dat'
+print,'====================================='
+print,'CHECKING ',fileo
+print,'====================================='
+;FILE_EX=FINDFILE(fileo,count=count)
+;count=0
+;count=N_ELEMENTS(FILE_SEARCH(FILEO))
+count=""
+count=FILE_SEARCH(FILEO)
+
+;IF COUNT EQ 1 THEN BEGIN
+IF COUNT NE "" THEN BEGIN
+print,'FILE EXISTS!'
+print,''
+restore,fileo
+IF isc EQ 0 THEN WSDI_Y_T(*,*,0:NYEAR_1-1)=WSDI_Y ELSE WSDI_Y_T(*,*,NYEAR_1:NYEAR_TOT-1)=WSDI_Y
+ENDIF ELSE BEGIN
+print,'FILE DOES NOT EXIST!'
+STOP
+ENDELSE
+
+ENDFOR ;SCEN
+
+;================
+;MULTI-YEAR MEAN
+;================
+
+;ORIGINAL HELIX
+;Y_C_15=[2015,2040,2027,2019,2022,2020,2003]
+;Y_C_20=[2030,2055,2039,2035,2038,2034,2020]
+;Y_C_40=[2068,2113,2074,2083,2102,2069,2065]
+
+Y_C_15=[2024,2033,2025,2028,2029,2025,2027]
+Y_C_20=[2033,2049,2037,2042,2046,2035,2039]
+Y_C_40=[2057,2077,2055,2066,2074,2052,2061] ; 3C
+
+FOR ix=0,nx-1 DO BEGIN &$
+FOR iy=0,ny-1 DO BEGIN &$
+IF landmask(ix,iy) GT 0.5 THEN BEGIN
+WSDI_Y_TOT(ix,iy,0,*,ir)=WSDI_Y_T(ix,iy,5:34) &$
+WSDI_Y_TOT(ix,iy,1,*,ir)=WSDI_Y_T(ix,iy,Y_C_15(ir)-15-YEAR_INI(0):Y_C_15(ir)+14-YEAR_INI(0)) &$
+WSDI_Y_TOT(ix,iy,2,*,ir)=WSDI_Y_T(ix,iy,Y_C_20(ir)-15-YEAR_INI(0):Y_C_20(ir)+14-YEAR_INI(0)) &$
+WSDI_Y_TOT(ix,iy,3,*,ir)=WSDI_Y_T(ix,iy,NYEAR_TOT-30:NYEAR_TOT-1) &$
+ENDIF
+ENDFOR &$
+ENDFOR
+
+ic=ic+1
+ENDFOR ; END RCM
+
+BINSIZE=1
+NBINS=100
+BINS=FINDGEN(NBINS)*BINSIZE
+
+ROB=FLTARR(nx,ny,3)
+
+FOR ix=0,NX-1 DO BEGIN
+FOR iy=0,NY-1 DO BEGIN
+IF landmask(ix,iy) GE 0.5 THEN BEGIN
+
+;pdf_w=FLTARR(NBINS,3,NRUN)
+;pdf_m=FLTARR(NBINS,3)
+;pdf_t=FLTARR(NBINS,3)
+cdf_w=FLTARR(NBINS,3,NRUN)
+cdf_m=FLTARR(NBINS,3) ;MEAN
+cdf_t=FLTARR(NBINS,3) ;MEAN
+ww=FLTARR(NBINS)
+
+am=FLTARR(30)
+
+
+FOR it=0,2 DO BEGIN
+FOR ir=0,NRUN -1 DO BEGIN
+a=REFORM(WSDI_Y_TOT(ix,iy,it,*,ir))
+;FOR ib=0,NBINS-1 DO BEGIN &$
+;WE_BIN=WHERE(a GE BINS(ib) AND FINITE(a,/NaN) EQ 0,count) &$
+;IF WE_BIN(0) NE -1 THEN pdf_w(ib,it,ir)=count &$ ;/NPOINTS(imm)/NYEARS &$
+;ENDFOR &$ ;bins
+ww(*)=histogram(a,BINSIZE=BINSIZE,NBINS=NBINS,MIN=BINS(0),/NaN)
+cdf_w(*,it,ir)=TOTAL(ww,/CUMULATIVE)/TOTAL(ww)
+ENDFOR
+FOR itt=0,29 DO BEGIN
+am(itt)=MEAN(REFORM(WSDI_Y_TOT(ix,iy,it,itt,*)))
+ENDFOR
+;FOR ib=0,NBINS-1 DO BEGIN &$
+;WE_BIN=WHERE(am GE BINS(ib) AND FINITE(am,/NaN) EQ 0,count) &$
+;IF WE_BIN(0) NE -1 THEN pdf_m(ib,it)=count;/NPOINTS(imm)/NYEARS &$
+;ENDFOR &$ ;bins
+ww(*)=histogram(am,BINSIZE=BINSIZE,NBINS=NBINS,MIN=BINS(0),/NaN)
+cdf_m(*,it)=TOTAL(ww,/CUMULATIVE)/TOTAL(ww)
+at=REFORM(WSDI_Y_TOT(ix,iy,it,*,*),30*NRUN)
+;FOR ib=0,NBINS-1 DO BEGIN &$
+;WE_BIN=WHERE(at GE BINS(ib) AND FINITE(at,/NaN) EQ 0,count) &$
+;IF WE_BIN(0) NE -1 THEN pdf_t(ib,it)=count &$
+;ENDFOR &$ ;bins
+ww(*)=histogram(at,BINSIZE=BINSIZE,NBINS=NBINS,MIN=BINS(0),/NaN)
+cdf_t(*,it)=TOTAL(ww,/CUMULATIVE)/TOTAL(ww)
+ENDFOR
+
+GOTO,JUMP_PLOT
+window,1,retain=2
+!p.multi=0
+;plot,bins,1-[0,cdf_t(*,0)],color=black,xrange=[0,100],thick=3,yrange=[0,0.6]
+;oplot,bins,1-[0,cdf_t(*,1)],color=50,thick=3
+;oplot,bins,1-[0,cdf_t(*,2)],color=250,thick=3
+;oplot,bins,1-[0,cdf_m(*,1)],color=50,thick=3,linestyle=2
+;oplot,bins,1-[0,cdf_m(*,2)],color=250,thick=3,linestyle=2
+plot,bins,[0,cdf_t(*,0)],color=black,xrange=[0,100],thick=3,yrange=[0,1]
+oplot,bins,[0,cdf_t(*,1)],color=50,thick=3
+oplot,bins,[0,cdf_t(*,2)],color=250,thick=3
+oplot,bins,[0,cdf_m(*,0)],color=0,thick=3,linestyle=2
+oplot,bins,[0,cdf_m(*,1)],color=50,thick=3,linestyle=2
+oplot,bins,[0,cdf_m(*,2)],color=250,thick=3,linestyle=2
+for ir=0,NRUN-1 DO BEGIN &$
+;for ir=0,0 DO BEGIN &$
+;oplot,bins,cdf_w(*,1,ir),color=50 &$
+;oplot,1-bins,[0,cdf_w(*,2,ir)],color=250 &$
+oplot,bins,[0,cdf_w(*,2,ir)],color=250 &$
+ENDFOR
+JUMP_PLOT:
+
+A2=TOTAL(([0,cdf_m(*,1)]-[0,cdf_m(*,0)])^2.)
+A1=TOTAL(([0,cdf_t(*,1)]-[0,cdf_m(*,1)])^2.)
+;PRINT,A1,A2,1-A1/A2
+ROB(ix,iy,0)=1-A1/A2
+
+A2=TOTAL(([0,cdf_m(*,2)]-[0,cdf_m(*,0)])^2.)
+A1=TOTAL(([0,cdf_t(*,2)]-[0,cdf_m(*,2)])^2.)
+;PRINT,A1,A2,1-A1/A2
+ROB(ix,iy,1)=1-A1/A2
+
+A2=TOTAL(([0,cdf_m(*,2)]-[0,cdf_m(*,1)])^2.)
+A1=TOTAL(([0,cdf_t(*,2)]-[0,cdf_m(*,2)])^2.)
+;PRINT,A1,A2,1-A1/A2
+ROB(ix,iy,2)=1-A1/A2
+
+ENDIF
+ENDFOR
+ENDFOR
+
+fileo='./DATA/ROBUSTNESS_'+STAT+'_SCEN.dat'
+save,filename=fileo,nx,ny,ROB
+
+
+;window,2,retain=2
+;plot,bins,pdf_t(*,0)/(pdf_t(0,0)),color=black,xrange=[1,100],thick=3
+;oplot,bins,pdf_t(*,1)/(pdf_t(0,1)),color=50,thick=3
+;oplot,bins,pdf_t(*,2)/(pdf_t(0,2)),color=250,thick=3
+;oplot,bins,pdf_m(*,1)/(pdf_m(0,1)),color=50,thick=3,linestyle=2
+;oplot,bins,pdf_m(*,2)/(pdf_m(0,2)),color=250,thick=3,linestyle=2
+;for ir=0,NRUN-1 DO BEGIN &$
+;;for ir=0,0 DO BEGIN &$
+;;oplot,bins,pdf_w(*,1,ir),color=50 &$
+;oplot,bins,pdf_w(*,2,ir)/(pdf_w(0,2,ir)),color=250 &$
+;ENDFOR
+
+GOTO,JUMP_IDEAL
+
+BINSIZE=1
+NBINS=100
+BINS=FINDGEN(NBINS)*BINSIZE-50
+
+sig=3
+mean=5
+arr=RANDOMN(seed,10000)
+d1=arr*sig+mean  
+g1=HISTOGRAM(d1,BINSIZE=BINSIZE,NBINS=NBINS,MIN=BINS(0))
+
+
+sig=2
+mean=15
+d2=arr*sig+mean  
+g2=HISTOGRAM(d2,BINSIZE=BINSIZE,NBINS=NBINS,MIN=BINS(0))
+
+d3=[d1,d2]
+
+m=(d1+d2)/2.
+gm=HISTOGRAM(m,BINSIZE=BINSIZE,NBINS=NBINS,MIN=BINS(0))
+
+gm2=HISTOGRAM(d3,BINSIZE=BINSIZE,NBINS=NBINS,MIN=BINS(0))
+
+window,1,retain=2
+plot,bins,g1
+oplot,bins,g2
+oplot,bins,gm,thick=2
+oplot,bins,gm2,thick=2,color=250
+
+c1=TOTAL(g1,/CUMULATIVE)/TOTAL(g1)
+c2=TOTAL(g2,/CUMULATIVE)/TOTAL(g2)
+cm=TOTAL(gm,/CUMULATIVE)/TOTAL(gm)
+
+cm2=TOTAL(gm2,/CUMULATIVE)/TOTAL(gm2)
+
+window,2,retain=2
+plot,bins,c1
+oplot,bins,c2
+oplot,bins,(c1+c2)/2,color=0,thick=2,linestyle=2
+oplot,bins,cm,thick=2
+oplot,bins,cm2,thick=2,color=250
+
+JUMP_IDEAL:
+
+;=============
+;DIFFERENCE
+;=============
+WSDI_DIFF_TOT=REFORM(WSDI_Y_TOT(*,*,2,*,*)-WSDI_Y_TOT(*,*,1,*,*)) ;2C-1-5 C
+WSDI_DIFF_TOT_Md=FLTARR(nx,ny,NYEARS)
+WSDI_DIFF_TOT_Md_Md=FLTARR(nx,ny)
+WSDI_DIFF_TOT_Md_Mx=FLTARR(nx,ny)
+
+;=================
+;CALC MODEL MEDIAN
+;=================
+
+;calc model median first
+FOR ix=0,nx-1 DO BEGIN &$
+FOR iy=0,ny-1 DO BEGIN &$
+IF landmask(ix,iy) GT 0.5 THEN BEGIN
+FOR it=0,30-1 DO BEGIN
+FOR ib=0,3 DO BEGIN
+WSDI_Y_TOT_Md(ix,iy,ib,it)=MEDIAN(WSDI_Y_TOT(ix,iy,ib,it,*))
+ENDFOR
+WSDI_DIFF_TOT_Md(ix,iy,it)=MEDIAN(WSDI_DIFF_TOT(ix,iy,it,*))
+ENDFOR
+WSDI_DIFF_TOT_Md_Md(ix,iy)=MEDIAN(WSDI_DIFF_TOT_Md(ix,iy,*))
+WSDI_DIFF_TOT_Md_Mx(ix,iy)=MAX(WSDI_DIFF_TOT_Md(ix,iy,*))
+ENDIF
+ENDFOR
+ENDFOR
+
+;=================
+;MULTI MODEL PLOT
+;=================
+
+WSDI_M_p=FLTARR(nx,ny,4,3) ;25 50 and 75th perc
+WSDI_Mx_p=FLTARR(nx,ny,4,3)
+
+FOR ix=0,nx-1 DO BEGIN &$
+FOR iy=0,ny-1 DO BEGIN &$
+FOR it=0,3 DO BEGIN &$
+IF landmask(ix,iy) GT 0.5 THEN BEGIN &$
+WSDI_M_p(ix,iy,it,*)=cgPercentiles(REFORM(WSDI_M_TOT(ix,iy,it,*)), Percentiles=[0.25,0.5,0.75]) &$
+WSDI_Mx_p(ix,iy,it,*)=cgPercentiles(REFORM(WSDI_Mx_TOT(ix,iy,it,*)), Percentiles=[0.25,0.5,0.75]) &$
+ENDIF &$
+ENDFOR &$
+ENDFOR &$
+ENDFOR
+
+;=================
+;PLOT COMBINED
+;=================
+
+levels=[0,12,24,48,96,192,384]/2
+colors=[80,100,150,190,210,250]
+levels_d=[0,12,24,48,96,192,384]
+colors_d=[80,100,150,190,210,250]
+
+
+;STIPPELING
+pattern_r = Obj_New('idlgrpattern', 1, ORIENTATION=-45,SPACING=4.)
+
+;READ ERAINT
+OBS_2='ERAINT'
+YEAR_INI_OBS_2=1979
+YEAR_END_OBS_2=2010
+VAR_OBS_2='mx2t'
+DIR_OBS_2='/media/NAS/AFRICA-OBS/'+OBS_2+'/tasmax'
+DIR_SM=DIR_OBS_2+'/PP/'+STAT
+FILEO=DIR_SM+'/'+VAR+'_'+STRMID(YEAR_INI_OBS_2,4,4)+'-'+STRMID(YEAR_END_OBS_2,4,4)+'_'+STAT+'.dat'
+restore,filename=fileo ;WSDI_Y
+
+WSDI_OBS=FLTARR(nx,ny)-999.
+FOR ix=0,nx-1 DO BEGIN &$
+FOR iy=0,ny-1 DO BEGIN &$
+IF landmask(ix,iy) GT 0.5 THEN BEGIN &$
+WSDI_OBS(ix,iy)=MAX(WSDI_Y(ix,iy,*),/NaN)  &$
+ENDIF &$
+ENDFOR &$
+ENDFOR
+
+colors(0)=255
+
+;STIPPELING
+pattern_r = Obj_New('idlgrpattern', 1, ORIENTATION=-45,SPACING=4,THICK=0.8)
+
+w1=WINDOW(WINDOW_TITLE=STAT,DIMENSIONS=[1000,700])
+MARGIN=[0.02,0.02,0.02,0.02]
+w_plot= image(landmask, GRID_UNITS=2,IMAGE_LOCATION=[-180,-90],IMAGE_DIMENSIONS=[360,180], $
+	;TRANSPARENCY=80,MAP_PROJECTION='Mollweide',GRID_LATITUDE=0,GRID_LONGITUDE=0, $
+	TRANSPARENCY=93,MAP_PROJECTION='Robinson',GRID_LATITUDE=0,GRID_LONGITUDE=0, $
+	FONT_SIZE=10,FONT_STYLE=1,AXIS_STYLE=1,LAYOUT=[2,2,1],MARGIN=MARGIN, $
+	title='ERA Interim 1980-2010',/CURRENT) 
+;c_plot= CONTOUR(WSDI_OBS(*,*),lon,lat,c_value=levels,RGB_INDICES=colors,/FILL,RGB_TABLE=rgb,/OVERPLOT,GRID_UNITS=2)
+mc = MAPCONTINENTS(THICK=0.5)
+t=TEXT(0.1,1,'a',/RELATIVE,FONT_SIZE=14,TARGET=w_plot)
+
+;w_plot= image(landmask,LIMIT=[-60,-180,80,180], GRID_UNITS=2,IMAGE_LOCATION=[-180,-90],IMAGE_DIMENSIONS=[360,180], $
+w_plot= image(landmask, GRID_UNITS=2,IMAGE_LOCATION=[-180,-90],IMAGE_DIMENSIONS=[360,180], $
+	TRANSPARENCY=93,MAP_PROJECTION='Robinson',GRID_LATITUDE=0,GRID_LONGITUDE=0, $
+	FONT_SIZE=10,FONT_STYLE=1,AXIS_STYLE=1,LAYOUT=[2,2,2],MARGIN=[0.02,0,0.02,0], $
+	title='Models median 1976-2005',/CURRENT) 
+c_plot= CONTOUR(WSDI_Mx_p(*,*,0,1),lon,lat,c_value=levels,RGB_INDICES=colors,/FILL,RGB_TABLE=rgb,/OVERPLOT,GRID_UNITS=2)
+mc = MAPCONTINENTS(THICK=0.5)
+t=TEXT(0.1,1,'b',/RELATIVE,FONT_SIZE=14,TARGET=w_plot)
+
+w_plot= image(landmask, GRID_UNITS=2,IMAGE_LOCATION=[-180,-90],IMAGE_DIMENSIONS=[360,180], $
+	TRANSPARENCY=93,MAP_PROJECTION='Robinson',GRID_LATITUDE=0,GRID_LONGITUDE=0, $
+	FONT_SIZE=10,FONT_STYLE=1,AXIS_STYLE=1,LAYOUT=[2,2,3],MARGIN=MARGIN, $
+	title='Models median +1.5$\circ$C ',/CURRENT) 
+c_plot= CONTOUR(WSDI_Mx_p(*,*,1,1),lon,lat,c_value=levels,RGB_INDICES=colors,/FILL,RGB_TABLE=rgb,/OVERPLOT,GRID_UNITS=2)
+s_plot= CONTOUR(ROB(*,*,0),lon,lat,c_value=[0.8,1],/OVERPLOT,C_FILL_PATTERN=pattern_r,/FILL,COLOR="black",GRID_UNITS=2) 
+mc = MAPCONTINENTS(THICK=0.5)
+t=TEXT(0.1,1,'c',/RELATIVE,FONT_SIZE=14,TARGET=w_plot)
+
+w_plot= image(landmask, GRID_UNITS=2,IMAGE_LOCATION=[-180,-90],IMAGE_DIMENSIONS=[360,180], $
+	TRANSPARENCY=93,MAP_PROJECTION='Robinson',GRID_LATITUDE=0,GRID_LONGITUDE=0, $
+	FONT_SIZE=10,FONT_STYLE=1,AXIS_STYLE=1,LAYOUT=[2,2,4],MARGIN=MARGIN, $
+	title='Models median +2$\circ$C',/CURRENT) 
+c_plot= CONTOUR(WSDI_Mx_p(*,*,2,1),lon,lat,c_value=levels,RGB_INDICES=colors,/FILL,RGB_TABLE=rgb,/OVERPLOT,GRID_UNITS=2)
+s_plot= CONTOUR(ROB(*,*,1),lon,lat,c_value=[0.8,1],/OVERPLOT,C_FILL_PATTERN=pattern_r,/FILL,COLOR="black",GRID_UNITS=2) 
+mc = MAPCONTINENTS(THICK=0.5)
+t=TEXT(0.1,1,'d',/RELATIVE,FONT_SIZE=14,TARGET=w_plot)
+
+tickname = STRING(levels, FORMAT='(f6.2)') &$
+cb0 = Colorbar(TARGET=c_plot,BORDER=1,TAPER=1,TICKNAME=tickname,position=[.3,0.05,.7,0.06],FONT_SIZE=8,TITLE='HWMId Max.')
+
+
+;w1.Save,'./PLOTS/PLOT_'+STAT+'_MAX_SCEN_COMBINED.pdf',BITMAP=1,PAGE_SIZE="A4"
+;w1.Save,'./PLOTS/PLOT_'+STAT+'_MAX_SCEN_COMBINED.eps',BITMAP=1,PAGE_SIZE="A4"
+
+
+STOP
+;================
+;CDF ON MASK
+;================
+
+BINSIZE=3
+NBINS=100
+BINS=FINDGEN(NBINS)*BINSIZE
+
+WSDI_CDF=FLTARR(NMASK+1,4,NBINS)
+WSDI_CDF_R=FLTARR(NMASK+1,4,NBINS,NRUN)
+
+KS_CDF_Y=FLTARR(NMASK,NBINS,3) ;1980-2100
+SIG_KS_AREA=FLTARR(NMASK,NBINS,3,NRUN)
+MOD_AGR_KS=FLTARR(NMASK,NBINS,3)
+
+NPOINTs=FLTARR(NMASK+1)
+
+FOR imm=0,NMASK-1 DO BEGIN &$ ;MASK
+ print,'========================' &$
+ print,'MASK ',MASK(imm) &$
+ print,'========================' &$
+WORK_LAND=landmask*0. &$
+we_lon=WHERE(lon GE LON1(imm) AND lon LE LON2(imm)  AND lat GE LAT1(imm)  AND lat LE LAT2(imm) AND landmask GT 0.5,COMPLEMENT=WE_NOLAND ) &$
+WORK_LAND=landmask*0.+1 &$
+WORK_LAND(we_noland)=0. &$
+NPOINTS(imm)=N_ELEMENTS(WE_LON)
+
+AREA_Y=FLTARR(NY)
+CORR=FLTARR(NY)
+;CALC AREA TOT IN KM
+FOR iy=0,ny-1 DO BEGIN &$
+; AREA=((SIN(LAT(ix,iy)(+.25)*!DtoR)-SIN((LAT(ix,iy)-.25)*!DtoR))*0.5*!DtoR*6371^2.) 
+CORR(iy)=SIN((LAT(0,iy)+.25)*!DtoR)-SIN((LAT(0,iy)-.25)*!DtoR) &$
+AREA_Y(iy)=TOTAL(WORK_LAND(*,iy)*CORR(iy)) &$
+ENDFOR
+
+AREA_MASK=TOTAL(AREA_Y)
+
+FOR ir=0,NRUN-1 DO BEGIN &$
+PDF=FLTARR(nbins,4,NYEARS) &$
+PDF_W=FLTARR(nbins,4) &$
+FOR it=0,3 DO BEGIN &$
+PDF_Y=FLTARR(ny,nbins,NYEARS) &$
+WORK=REFORM(WSDI_Y_TOT(*,*,it,*,ir)) &$
+FOR iyy=0,NYEARS-1 DO BEGIN &$
+WORK_W=REFORM(WORK(*,*,iyy)) &$
+WORK_W(we_noland)=!VALUES.F_NaN &$
+WORK(*,*,iyy)=WORK_W &$
+FOR iy=0,ny-1 DO BEGIN &$
+pdf_y(iy,*,iyy)=HISTOGRAM(REFORM(WORK_W(*,iy)),BINSIZE=BINSIZE,NBINS=NBINS,MIN=BINS(0),/NaN)*CORR(iy) &$
+ENDFOR &$ ;AREA iy
+FOR ib=0,NBINS-1 DO BEGIN &$
+PDF(ib,it,iyy)=TOTAL(pdf_y(*,ib,iyy)) &$
+ENDFOR &$ ; ib
+ENDFOR &$ ;YEAR iyy
+FOR ib=0,NBINS-1 DO BEGIN &$
+PDF_W(ib,it)=TOTAL(pdf(ib,it,*)/NYEARS) &$
+ENDFOR &$ ; ib
+WSDI_CDF_R(imm,it,*,ir)=TOTAL(pdf_W(*,it),/CUMULATIVE)/AREA_MASK &$; &$ /NPOINTS(imm) &$; /NYEARS &$
+
+ENDFOR &$ ;SCEN it
+
+;=================
+;CALC K-S
+;=================
+print,'KOLMOGOROV'
+FOR ib=0,NBINS-1 DO BEGIN
+ww_ref=REFORM(PDF(ib,0,*))
+ww_1=REFORM(PDF(ib,1,*))
+ww_2=REFORM(PDF(ib,2,*))
+ks2,ww_1,NYEARS,ww_ref,NYEARS,stat_v,prob_v,fn1,fn2,sor1,sor2 ;1.5C
+KS_CDF_Y(imm,ib,0)=prob_v
+ks2,ww_2,NYEARS,ww_ref,NYEARS,stat_v,prob_v,fn1,fn2,sor1,sor2; 2C
+KS_CDF_Y(imm,ib,1)=prob_v
+ks2,ww_2,NYEARS,ww_1,NYEARS,stat_v,prob_v,fn1,fn2,sor1,sor2 ; 2C - 1.5C
+KS_CDF_Y(imm,ib,2)=prob_v
+ENDFOR ;bins
+
+SIG_KS_AREA(imm,*,*,ir)=KS_CDF_Y(imm,*,*)
+
+ENDFOR &$ ;RUN ir
+
+THRES=0.05
+FOR it=0,2 DO BEGIN &$
+FOR ib=0,NBINS-1 DO BEGIN &$
+FOR ir=0,NRUN -1 DO BEGIN &$
+IF SIG_KS_AREA(imm,ib,it,ir) LE THRES THEN MOD_AGR_KS(imm,ib,it)=MOD_AGR_KS(imm,ib,it)+1 &$
+ENDFOR &$
+ENDFOR &$
+ENDFOR
+
+;CONSIDER ALL MODELS
+FOR it=0,3 DO BEGIN &$
+WORK=REFORM(WSDI_Y_TOT(*,*,it,*,*)) &$
+FOR iyy=0,NYEARS-1 DO BEGIN &$
+FOR ir=0,NRUN-1 DO  BEGIN &$
+WORK_W=REFORM(WORK(*,*,iyy,ir)) &$
+WORK_W(we_noland)=!VALUES.F_NaN &$
+WORK(*,*,iyy,ir)=WORK_W &$
+ENDFOR ;ir
+ENDFOR ;iyy
+FOR iy=0,ny-1 DO BEGIN &$
+pdf_y(iy,*)=HISTOGRAM(REFORM(WORK(*,iy,*,*)),BINSIZE=BINSIZE,NBINS=NBINS,MIN=BINS(0),/NaN)*CORR(iy) &$
+ENDFOR &$
+PDF=FLTARR(nbins) &$
+FOR ib=0,NBINS-1 DO BEGIN &$
+PDF(ib)=TOTAL(pdf_y(*,ib)) &$
+ENDFOR &$
+;WSDI_CDF(imm,it,*)=TOTAL(pdf,/CUMULATIVE)/NPOINTS(imm)/NYEARS/NRUN &$
+WSDI_CDF(imm,it,*)=TOTAL(pdf,/CUMULATIVE)/AREA_MASK/NYEARS/NRUN &$
+ENDFOR &$ ;SCEN it
+
+ENDFOR ;MASK
+
+;===========================
+;PLOT ALL MASKS
+;===========================
+w3=WINDOW(WINDOW_TITLE=STAT,DIMENSIONS=[800,1200])
+FOR imm=0,NMASK-1 DO BEGIN  &$
+
+p=PLOT(BINS(1:NBINS-1),WSDI_CDF(imm,0,0:NBINS-2)*100.,/CURRENT,TITLE=MASK(imm),XRANGE=[3,110],color="black",YRANGE=[0,100], $
+XTITLE='HWMId',YTITLE='Area fraction (%)',LAYOUT=[4,6,imm+1],MARGIN=[0.15,0.15,0.05,0.15],XMINOR=0,XTICKVALUES=TICKV,YMINOR=0,THICK=2, $
+AXIS_STYLE=2,FONT_SIZE=8,/XLOG)   &$
+;FOR iyy=0,NYEARS-1 DO BEGIN &$
+FOR ir=0,NRUN-1 dO BEGIN &$
+p=PLOT(BINS(1:NBINS-1),WSDI_CDF_R(imm,0,0:NBINS-2,ir)*100.,color="black",/OVERPLOT,THICK=1,/XLOG) &$
+ENDFOR &$
+;ENDFOR &$
+
+MAX_P=FLTARR(NBINS) &$
+MIN_P=FLTARR(NBINS) &$
+FOR ib=0,NBINS-1 DO BEGIN &$
+MAX_P(ib)=MAX(REFORM(WSDI_CDF_R(imm,0,ib,*,*)*100.)) &$
+MIN_P(ib)=MIN(REFORM(WSDI_CDF_R(imm,0,ib,*,*)*100.)) &$
+ENDFOR &$
+poly_p=POLYGON([BINS(1:NBINS-1),REVERSE(BINS(1:NBINS-1))],[MAX_P(0:NBINS-2),REVERSE(MIN_P(0:NBINS-2))],/DATA,/FILL_BACKGROUND, COLOR="gray",FILL_COLOR="gray",FILL_TRANSPARENCY=80,TARGET=p,LAYOUT=[4,6,imm+1]) &$
+
+p=PLOT(BINS(1:NBINS-1),WSDI_CDF(imm,1,0:NBINS-2)*100.,color="blue",/OVERPLOT,THICK=2,/XLOG) &$
+;FOR iyy=0,NYEARS-1 DO BEGIN &$
+FOR ir=0,NRUN-1 dO BEGIN &$
+p=PLOT(BINS(1:NBINS-1),WSDI_CDF_R(imm,1,0:NBINS-2,ir)*100.,color="blue",/OVERPLOT,THICK=1,/XLOG) &$
+ENDFOR &$
+;ENDFOR &$
+FOR ib=0,NBINS-1 DO BEGIN &$
+MAX_P(ib)=MAX(REFORM(WSDI_CDF_R(imm,1,ib,*)*100.)) &$
+MIN_P(ib)=MIN(REFORM(WSDI_CDF_R(imm,1,ib,*)*100.)) &$
+ENDFOR &$
+poly_p=POLYGON([BINS(1:NBINS-1),REVERSE(BINS(1:NBINS-1))],[MAX_P(0:NBINS-2),REVERSE(MIN_P(0:NBINS-2))],/DATA,/FILL_BACKGROUND, COLOR="blue",FILL_COLOR="blue",FILL_TRANSPARENCY=80,TARGET=p,LAYOUT=[4,6,imm+1]) &$
+
+p=PLOT(BINS(1:NBINS-1),WSDI_CDF(imm,2,0:NBINS-2)*100.,color="red",/OVERPLOT,THICK=2,/XLOG) &$
+;FOR iyy=0,NYEARS-1 DO BEGIN &$
+FOR ir=0,NRUN-1 dO BEGIN &$
+p=PLOT(BINS(1:NBINS-1),WSDI_CDF_R(imm,2,0:NBINS-2,ir)*100.,color="red",/OVERPLOT,THICK=1,/XLOG) &$
+ENDFOR &$
+;ENDFOR &$
+FOR ib=0,NBINS-1 DO BEGIN &$
+MAX_P(ib)=MAX(REFORM(WSDI_CDF_R(imm,2,ib,*)*100.)) &$
+MIN_P(ib)=MIN(REFORM(WSDI_CDF_R(imm,2,ib,*)*100.)) &$
+ENDFOR &$
+poly_p=POLYGON([BINS(1:NBINS-1),REVERSE(BINS(1:NBINS-1))],[MAX_P(0:NBINS-2),REVERSE(MIN_P(0:NBINS-2))],/DATA,/FILL_BACKGROUND, COLOR="red",FILL_COLOR="red",FILL_TRANSPARENCY=80,TARGET=p,LAYOUT=[4,6,imm+1]) &$
+
+poly_p=POLYGON([MIN(FR2003),MAX(FR2003),MAX(FR2003),MIN(FR2003)],[60,60,100,100],/DATA,/FILL_BACKGROUND, COLOR="blue",FILL_COLOR="blue",FILL_TRANSPARENCY=80,TARGET=p,LAYOUT=[4,6,imm+1]) &$
+poly_p=POLYGON([MIN(RU2010),MAX(RU2010),MAX(RU2010),MIN(RU2010)],[60,60,100,100],/DATA,/FILL_BACKGROUND, COLOR="red",FILL_COLOR="red",FILL_TRANSPARENCY=80,TARGET=p,LAYOUT=[4,6,imm+1]) &$
+poly_p=POLYGON([MIN(EA2007),MAX(EA2007),MAX(EA2007),MIN(EA2007)],[60,60,100,100],/DATA,/FILL_BACKGROUND, COLOR="black",FILL_COLOR="black",FILL_TRANSPARENCY=80,TARGET=p,LAYOUT=[4,6,imm+1]) &$
+poly_p=POLYGON([MIN(USA1980,/NaN),MAX(USA1980,/NaN),MAX(USA1980,/NaN),MIN(USA1980,/NaN)],[60,60,100,100],/DATA,/FILL_BACKGROUND, COLOR="green",FILL_COLOR="green",FILL_TRANSPARENCY=80,TARGET=p,LAYOUT=[4,6,imm+1]) &$
+
+t1=TEXT(4,94,'1976-2005',/DATA,COLOR="Black",FONT_SIZE=10,TARGET=p) &$
+t2=TEXT(4,89,'+1.5C',/DATA,COLOR="Blue",FONT_SIZE=10,TARGET=p) &$
+t3=TEXT(6,70,'+2C',/DATA,COLOR="Red",FONT_SIZE=10,TARGET=p) &$
+
+t1=TEXT(26,78,'EA 2007',/DATA,COLOR="Black",FONT_SIZE=10,TARGET=p,ORIENTATION=90) &$
+t2=TEXT(39,78,'FR 2003',/DATA,COLOR="Blue",FONT_SIZE=10,TARGET=p,ORIENTATION=90) &$
+t3=TEXT(46,78,'US 1980',/DATA,COLOR="Green",FONT_SIZE=10,TARGET=p,ORIENTATION=90) &$
+t4=TEXT(94,78,'RU 2010',/DATA,COLOR="Red",FONT_SIZE=10,TARGET=p,ORIENTATION=90) &$
+ENDFOR
+w3.Save,'./PLOTS/PLOT_'+STAT+'_CDF_MASK_SCEN_LAND-CORR.pdf',BITMAP=1,PAGE_SIZE="A4"
+
+;================
+;PLOT DIFF
+;================
+
+TICKV=[12,24,48,96]
+TICKV_Y=[1,5,10,20,50]
+
+w5=WINDOW(WINDOW_TITLE=STAT,DIMENSIONS=[800,1200])
+FOR imm=0,NMASK-2 DO BEGIN &$
+WORK_DIFF=FLTARR(nbins,nrun) &$
+FOR ir=0,NRUN-1 DO BEGIN &$
+WORK_DIFF(*,ir)=REFORM(WSDI_CDF_R(imm,1,*,ir)-WSDI_CDF_R(imm,0,*,ir)) &$
+ENDFOR &$
+FOR ib=0,NBINS-1 DO BEGIN &$
+MAX_P(ib)=MAX(REFORM(-100.*WORK_DIFF(ib,*))) &$
+MIN_P(ib)=MIN(REFORM(-100.*WORK_DIFF(ib,*))) &$
+ENDFOR &$
+p=PLOT(BINS(1:NBINS-1),-100.*(WSDI_CDF(imm,1,0:NBINS-2)-WSDI_CDF(imm,0,0:NBINS-2)),/CURRENT,TITLE=MASK(imm),XRANGE=[12,110],color="blue",YRANGE=[1,50], $
+XTITLE='HWMId',YTITLE='Difference in Area Fraction (%)',LAYOUT=[4,6,imm+1],MARGIN=[0.15,0.15,0.05,0.15],XMINOR=0,XTICKVALUES=TICKV,YMINOR=0,THICK=2, $
+AXIS_STYLE=2,FONT_SIZE=8,YTICKVALUES=TICKV_Y,/XLOG,/YLOG)  &$
+;poly_p=POLYGON([BINS(1:NBINS-1),REVERSE(BINS(1:NBINS-1))],[MAX_P(0:NBINS-2),REVERSE(MIN_P(0:NBINS-2))],/DATA,/FILL_BACKGROUND, COLOR="blue",FILL_COLOR="blue",FILL_TRANSPARENCY=80,TARGET=p,LAYOUT=[4,6,imm+1]) &$
+ww_p=WHERE(MAX_P LT 0.5) &$
+ww_m=WHERE(MIN_P LT 0.5) &$
+poly_p=POLYGON([BINS(1:ww_p(0)),REVERSE(BINS(1:ww_m(0)))],[MAX_P(0:ww_p(0)-1),REVERSE(MIN_P(0:ww_m(0)-1))],/DATA,/FILL_BACKGROUND, COLOR="blue",FILL_COLOR="blue",FILL_TRANSPARENCY=80,TARGET=p,LAYOUT=[4,6,imm+1]) &$
+
+FOR ir=0,NRUN-1 DO BEGIN &$
+WORK_DIFF(*,ir)=REFORM(WSDI_CDF_R(imm,2,*,ir)-WSDI_CDF_R(imm,0,*,ir)) &$
+ENDFOR &$
+FOR ib=0,NBINS-1 DO BEGIN &$
+MAX_P(ib)=MAX(REFORM(-100.*WORK_DIFF(ib,*))) &$
+MIN_P(ib)=MIN(REFORM(-100.*WORK_DIFF(ib,*))) &$
+ENDFOR &$
+p=PLOT(BINS(1:NBINS-1),-100.*(WSDI_CDF(imm,2,0:NBINS-2)-WSDI_CDF(imm,0,0:NBINS-2)),THICK=2,COLOR="red",/OVERPLOT,/XLOG,/YLOG)  &$
+;poly_p=POLYGON([BINS(1:32),REVERSE(BINS(1:32))],[MAX_P(0:31),REVERSE(MIN_P(0:31))],/DATA,/FILL_BACKGROUND, COLOR="red",FILL_COLOR="red",FILL_TRANSPARENCY=80,TARGET=p,LAYOUT=[4,6,imm+1]) &$
+ww_p=WHERE(MAX_P LT 0.5) &$
+ww_m=WHERE(MIN_P LT 0.5) &$
+poly_p=POLYGON([BINS(1:ww_p(0)),REVERSE(BINS(1:ww_m(0)))],[MAX_P(0:ww_p(0)-1),REVERSE(MIN_P(0:ww_m(0)-1))],/DATA,/FILL_BACKGROUND, COLOR="red",FILL_COLOR="red",FILL_TRANSPARENCY=80,TARGET=p,LAYOUT=[4,6,imm+1]) &$
+
+FOR ir=0,NRUN-1 DO BEGIN &$
+WORK_DIFF(*,ir)=REFORM(WSDI_CDF_R(imm,2,*,ir)-WSDI_CDF_R(imm,1,*,ir)) &$
+ENDFOR &$
+FOR ib=0,NBINS-1 DO BEGIN &$
+MAX_P(ib)=MAX(REFORM(-100.*WORK_DIFF(ib,*))) &$
+MIN_P(ib)=MIN(REFORM(-100.*WORK_DIFF(ib,*))) &$
+ENDFOR &$
+p=PLOT(BINS(1:NBINS-1),-100.*(WSDI_CDF(imm,2,0:NBINS-2)-WSDI_CDF(imm,1,0:NBINS-2)),THICK=2,COLOR="green",/OVERPLOT,/XLOG,/YLOG)  &$
+;poly_p=POLYGON([BINS(1:32),REVERSE(BINS(1:32))],[MAX_P(0:31),REVERSE(MIN_P(0:31))],/DATA,/FILL_BACKGROUND, COLOR="green",FILL_COLOR="green",FILL_TRANSPARENCY=80,TARGET=p,LAYOUT=[4,6,imm+1]) &$
+ww_p=WHERE(MAX_P LT 0.5) &$
+ww_m=WHERE(MIN_P LT 0.5) &$
+poly_p=POLYGON([BINS(1:ww_p(0)),REVERSE(BINS(1:ww_m(0)))],[MAX_P(0:ww_p(0)-1),REVERSE(MIN_P(0:ww_m(0)-1))],/DATA,/FILL_BACKGROUND, COLOR="green",FILL_COLOR="green",FILL_TRANSPARENCY=80,TARGET=p,LAYOUT=[4,6,imm+1]) &$
+
+
+;;poly_p=POLYGON([MIN(FR2003),MAX(FR2003),MAX(FR2003),MIN(FR2003)],[1,1,50,50],/DATA,/FILL_BACKGROUND,COLOR="blue",FILL_COLOR="blue",FILL_TRANSPARENCY=80,TARGET=p,LAYOUT=[4,6,imm+1]) &$
+;poly_p=POLYGON([MIN(FR2003),MAX(FR2003),MAX(FR2003),MIN(FR2003)],[1,1,50,50],/DATA,COLOR="blue",TARGET=p,LAYOUT=[4,6,imm+1],FILL_TRANSPARENCY=100) &$
+;poly_p=POLYGON([MIN(RU2010),MAX(RU2010),MAX(RU2010),MIN(RU2010)],[1,1,50,50],/DATA,COLOR="red",TARGET=p,LAYOUT=[4,6,imm+1],FILL_TRANSPARENCY=100) &$
+;poly_p=POLYGON([MIN(EA2007),MAX(EA2007),MAX(EA2007),MIN(EA2007)],[1,1,50,50],/DATA,COLOR="black",TARGET=p,LAYOUT=[4,6,imm+1],FILL_TRANSPARENCY=100) &$
+;poly_p=POLYGON([MIN(USA1980,/NaN),MAX(USA1980,/NaN),MAX(USA1980,/NaN),MIN(USA1980,/NaN)],[1,1,50,50],/DATA,COLOR="green",TARGET=p,LAYOUT=[],FILL_TRANSPARENCY=100) &$
+
+;t1=TEXT(7,25,'+2C - REF',/DATA,COLOR="Red",FONT_SIZE=10,TARGET=p) &$
+;t2=TEXT(3,21,'+1.5C - REF',/DATA,COLOR="Blue",FONT_SIZE=10,TARGET=p) &$
+;t3=TEXT(4,5,'+2C - 1.5C',/DATA,COLOR="Green",FONT_SIZE=10,TARGET=p) &$
+
+;t1=TEXT(26,13,'EA 2007',/DATA,COLOR="Black",FONT_SIZE=10,TARGET=p,ORIENTATION=90) &$
+;t2=TEXT(39,13,'FR 2003',/DATA,COLOR="Blue",FONT_SIZE=10,TARGET=p,ORIENTATION=90) &$
+;t3=TEXT(46,13,'US 1980',/DATA,COLOR="Green",FONT_SIZE=10,TARGET=p,ORIENTATION=90) &$
+;t4=TEXT(94,13,'RU 2010',/DATA,COLOR="Red",FONT_SIZE=10,TARGET=p,ORIENTATION=90) &$
+ENDFOR
+
+w5.Save,'./PLOTS/PLOT_'+STAT+'_CDF_DIFF_MASK_SCEN.pdf',BITMAP=1,PAGE_SIZE="A4"
+
+;====================
+;PLOT ONLY WORLD
+;====================
+w4=WINDOW(WINDOW_TITLE=STAT,DIMENSIONS=[800,400])
+imm=NMASK-1 ;WORLD
+
+TICKV=[6,12,24,48,96]
+TICKV_Y=[1,2,5,10,20,50]
+
+p=PLOT(BINS(1:NBINS-1),100.-WSDI_CDF(imm,0,0:NBINS-2)*100.,/CURRENT,XRANGE=[6,103],color="black",YRANGE=[1,50], $
+XTITLE='HWMId',YTITLE='Area fraction (%)',LAYOUT=[2,1,1],MARGIN=[0.15,0.15,0.05,0.15],XMINOR=0,XTICKVALUES=TICKV,YMINOR=0,THICK=2, $
+AXIS_STYLE=2,FONT_SIZE=8,/XLOG,/YLOG,YTICKVALUES=TICKV_Y) 
+MAX_P=FLTARR(NBINS) &$
+MIN_P=FLTARR(NBINS) &$
+FOR ib=0,NBINS-1 DO BEGIN &$
+MAX_P(ib)=MAX(REFORM(100.-WSDI_CDF_R(imm,0,ib,*)*100.)) &$
+MIN_P(ib)=MIN(REFORM(100.-WSDI_CDF_R(imm,0,ib,*)*100.)) &$
+ENDFOR &$
+ww_p=WHERE(MAX_P(*) LT 0.09) &$
+ww_m=WHERE(MIN_P(*) LT 0.09) &$
+;poly_p=POLYGON([BINS(1:NBINS-1),REVERSE(BINS(1:NBINS-1))],[MAX_P(0:NBINS-2),REVERSE(MIN_P(0:NBINS-2))],/DATA,/FILL_BACKGROUND, COLOR="gray",FILL_COLOR="gray",FILL_TRANSPARENCY=80,TARGET=p,LAYOUT=[2,1,1]) &$
+poly_p=POLYGON([BINS(1:ww_p(0)+1),REVERSE(BINS(1:ww_m(0)+1))],[MAX_P(0:ww_p(0)),REVERSE(MIN_P(0:ww_m(0)))],/DATA,/FILL_BACKGROUND, COLOR="gray",FILL_COLOR="gray",FILL_TRANSPARENCY=80,TARGET=p)
+
+p=PLOT(BINS(1:NBINS-1),100.-WSDI_CDF(imm,1,0:NBINS-2)*100.,color="blue",/OVERPLOT,THICK=2,/XLOG,/YLOG) &$
+FOR ib=0,NBINS-1 DO BEGIN &$
+MAX_P(ib)=MAX(REFORM(100.-WSDI_CDF_R(imm,1,ib,*)*100.)) &$
+MIN_P(ib)=MIN(REFORM(100.-WSDI_CDF_R(imm,1,ib,*)*100.)) &$
+ENDFOR &$
+ww_p=WHERE(MAX_P(*) LT 0.09) &$
+ww_m=WHERE(MIN_P(*) LT 0.09) &$
+poly_p=POLYGON([BINS(1:ww_p(0)+1),REVERSE(BINS(1:ww_m(0)+1))],[MAX_P(0:ww_p(0)),REVERSE(MIN_P(0:ww_m(0)))],/DATA,/FILL_BACKGROUND, COLOR="blue",FILL_COLOR="blue",FILL_TRANSPARENCY=80,TARGET=p)
+;poly_p=POLYGON([BINS(1:NBINS-1),REVERSE(BINS(1:NBINS-1))],[MAX_P(0:NBINS-2),REVERSE(MIN_P(0:NBINS-2))],/DATA,/FILL_BACKGROUND, COLOR="blue",FILL_COLOR="blue",FILL_TRANSPARENCY=80,TARGET=p,LAYOUT=[2,11]) &$
+
+p=PLOT(BINS(1:NBINS-1),100.-WSDI_CDF(imm,2,0:NBINS-2)*100.,color="red",/OVERPLOT,THICK=2,/XLOG,/YLOG) &$
+FOR ib=0,NBINS-1 DO BEGIN &$
+MAX_P(ib)=MAX(REFORM(100.-WSDI_CDF_R(imm,2,ib,*)*100.)) &$
+MIN_P(ib)=MIN(REFORM(100.-WSDI_CDF_R(imm,2,ib,*)*100.)) &$
+ENDFOR &$
+ww_p=WHERE(MAX_P(*) LT 0.09) &$
+ww_m=WHERE(MIN_P(*) LT 0.09) &$
+poly_p=POLYGON([BINS(1:ww_p(0)+1),REVERSE(BINS(1:ww_m(0)+1))],[MAX_P(0:ww_p(0)),REVERSE(MIN_P(0:ww_m(0)))],/DATA,/FILL_BACKGROUND, COLOR="red",FILL_COLOR="red",FILL_TRANSPARENCY=80,TARGET=p)
+;poly_p=POLYGON([BINS(1:NBINS-1),REVERSE(BINS(1:NBINS-1))],[MAX_P(0:NBINS-2),REVERSE(MIN_P(0:NBINS-2))],/DATA,/FILL_BACKGROUND, COLOR="red",FILL_COLOR="red",FILL_TRANSPARENCY=80,TARGET=p,LAYOUT=[2,1,1]) &$
+
+poly_p=POLYGON([MIN(FR2003),MAX(FR2003),MAX(FR2003),MIN(FR2003)],[1,1,50,50],/DATA,/FILL_BACKGROUND, COLOR="blue",FILL_COLOR="blue",FILL_TRANSPARENCY=80,TARGET=p,LAYOUT=[2,1,1]) &$
+poly_p=POLYGON([MIN(RU2010),MAX(RU2010),MAX(RU2010),MIN(RU2010)],[1,1,50,50],/DATA,/FILL_BACKGROUND, COLOR="red",FILL_COLOR="red",FILL_TRANSPARENCY=80,TARGET=p,LAYOUT=[2,1,1]) &$
+poly_p=POLYGON([MIN(EA2007),MAX(EA2007),MAX(EA2007),MIN(EA2007)],[1,1,50,50],/DATA,/FILL_BACKGROUND, COLOR="black",FILL_COLOR="black",FILL_TRANSPARENCY=80,TARGET=p,LAYOUT=[2,1,1]) &$
+poly_p=POLYGON([MIN(USA1980,/NaN),MAX(USA1980,/NaN),MAX(USA1980,/NaN),MIN(USA1980,/NaN)],[1,1,50,50],/DATA,/FILL_BACKGROUND, COLOR="green",FILL_COLOR="green",FILL_TRANSPARENCY=80,TARGET=p,LAYOUT=[2,1,1]) &$
+
+t1=TEXT(4,86,'1976-2005',/DATA,COLOR="Black",FONT_SIZE=10,TARGET=p)
+t2=TEXT(4,78,'+1.5C',/DATA,COLOR="Blue",FONT_SIZE=10,TARGET=p)
+t3=TEXT(6,50,'+2C',/DATA,COLOR="Red",FONT_SIZE=10,TARGET=p)
+
+t1=TEXT(26,58,'EA 2007',/DATA,COLOR="Black",FONT_SIZE=10,TARGET=p,ORIENTATION=90)
+t2=TEXT(39,58,'FR 2003',/DATA,COLOR="Blue",FONT_SIZE=10,TARGET=p,ORIENTATION=90)
+t3=TEXT(46,58,'US 1980',/DATA,COLOR="Green",FONT_SIZE=10,TARGET=p,ORIENTATION=90)
+t4=TEXT(94,58,'RU 2010',/DATA,COLOR="Red",FONT_SIZE=10,TARGET=p,ORIENTATION=90)
+
+FILEO_DATA='./DATA/DATA_'+STAT+'_CDF_SCEN_LAND-CORR.dat'
+save,filename=FILEO_DATA,BINS,MASK,WSDI_CDF,WSDI_CDF_R,MOD_AGR_KS
+
+STOP
+
+;TICKV_Y=[1,5,10,15,30]
+;PLOT DIFF
+WORK_DIFF=FLTARR(nbins,nrun) &$
+FOR ir=0,NRUN-1 DO BEGIN &$
+WORK_DIFF(*,ir)=REFORM(WSDI_CDF_R(imm,1,*,ir)-WSDI_CDF_R(imm,0,*,ir)) &$
+ENDFOR &$
+FOR ib=0,NBINS-1 DO BEGIN &$
+MAX_P(ib)=MAX(REFORM(-100.*WORK_DIFF(ib,*))) &$
+MIN_P(ib)=MIN(REFORM(-100.*WORK_DIFF(ib,*))) &$
+ENDFOR &$
+p=PLOT(BINS(1:NBINS-1),-100.*(WSDI_CDF(imm,1,0:NBINS-2)-WSDI_CDF(imm,0,0:NBINS-2)),/CURRENT,XRANGE=[3,110],color="blue",YRANGE=[1,50], $
+XTITLE='HWMId',YTITLE='Difference in Area Fraction (%)',LAYOUT=[2,1,2],MARGIN=[0.15,0.15,0.05,0.15],XMINOR=0,XTICKVALUES=TICKV,YMINOR=0,THICK=2, $
+AXIS_STYLE=2,FONT_SIZE=8,YTICKVALUES=TICKV_Y,/XLOG,/YLOG) 
+poly_p=POLYGON([BINS(1:NBINS-1),REVERSE(BINS(1:NBINS-1))],[MAX_P(0:NBINS-2),REVERSE(MIN_P(0:NBINS-2))],/DATA,/FILL_BACKGROUND, COLOR="blue",FILL_COLOR="blue",FILL_TRANSPARENCY=80,TARGET=p,LAYOUT=[2,1,2]) &$
+
+FOR ir=0,NRUN-1 DO BEGIN &$
+WORK_DIFF(*,ir)=REFORM(WSDI_CDF_R(imm,2,*,ir)-WSDI_CDF_R(imm,0,*,ir)) &$
+ENDFOR &$
+FOR ib=0,NBINS-1 DO BEGIN &$
+MAX_P(ib)=MAX(REFORM(-100.*WORK_DIFF(ib,*))) &$
+MIN_P(ib)=MIN(REFORM(-100.*WORK_DIFF(ib,*))) &$
+ENDFOR &$
+p=PLOT(BINS(1:NBINS-1),-100.*(WSDI_CDF(imm,2,0:NBINS-2)-WSDI_CDF(imm,0,0:NBINS-2)),THICK=2,COLOR="red",/OVERPLOT,/XLOG,/YLOG) 
+poly_p=POLYGON([BINS(1:NBINS-1),REVERSE(BINS(1:NBINS-1))],[MAX_P(0:NBINS-2),REVERSE(MIN_P(0:NBINS-2))],/DATA,/FILL_BACKGROUND, COLOR="red",FILL_COLOR="red",FILL_TRANSPARENCY=80,TARGET=p,LAYOUT=[2,1,2]) &$
+
+FOR ir=0,NRUN-1 DO BEGIN &$
+WORK_DIFF(*,ir)=REFORM(WSDI_CDF_R(imm,2,*,ir)-WSDI_CDF_R(imm,1,*,ir)) &$
+ENDFOR &$
+FOR ib=0,NBINS-1 DO BEGIN &$
+MAX_P(ib)=MAX(REFORM(-100.*WORK_DIFF(ib,*))) &$
+MIN_P(ib)=MIN(REFORM(-100.*WORK_DIFF(ib,*))) &$
+ENDFOR &$
+p=PLOT(BINS(1:NBINS-1),-100.*(WSDI_CDF(imm,2,0:NBINS-2)-WSDI_CDF(imm,1,0:NBINS-2)),THICK=2,COLOR="green",/OVERPLOT,/XLOG,/YLOG) 
+poly_p=POLYGON([BINS(1:NBINS-1),REVERSE(BINS(1:NBINS-1))],[MAX_P(0:NBINS-2),REVERSE(MIN_P(0:NBINS-2))],/DATA,/FILL_BACKGROUND, COLOR="green",FILL_COLOR="green",FILL_TRANSPARENCY=80,TARGET=p,LAYOUT=[2,1,2]) &$
+
+poly_p=POLYGON([MIN(FR2003),MAX(FR2003),MAX(FR2003),MIN(FR2003)],[1,1,50,50],/DATA,/FILL_BACKGROUND, COLOR="blue",FILL_COLOR="blue",FILL_TRANSPARENCY=80,TARGET=p,LAYOUT=[2,1,2]) &$
+poly_p=POLYGON([MIN(RU2010),MAX(RU2010),MAX(RU2010),MIN(RU2010)],[1,1,50,50],/DATA,/FILL_BACKGROUND, COLOR="red",FILL_COLOR="red",FILL_TRANSPARENCY=80,TARGET=p,LAYOUT=[2,1,2]) &$
+poly_p=POLYGON([MIN(EA2007),MAX(EA2007),MAX(EA2007),MIN(EA2007)],[1,1,50,50],/DATA,/FILL_BACKGROUND, COLOR="black",FILL_COLOR="black",FILL_TRANSPARENCY=80,TARGET=p,LAYOUT=[2,1,2]) &$
+poly_p=POLYGON([MIN(USA1980,/NaN),MAX(USA1980,/NaN),MAX(USA1980,/NaN),MIN(USA1980,/NaN)],[1,1,50,50],/DATA,/FILL_BACKGROUND, COLOR="green",FILL_COLOR="green",FILL_TRANSPARENCY=80,TARGET=p,LAYOUT=[2,1,2]) &$
+
+t1=TEXT(7,25,'+2C - REF',/DATA,COLOR="Red",FONT_SIZE=10,TARGET=p)
+t2=TEXT(3,21,'+1.5C - REF',/DATA,COLOR="Blue",FONT_SIZE=10,TARGET=p)
+t3=TEXT(4,5,'+2C - 1.5C',/DATA,COLOR="Green",FONT_SIZE=10,TARGET=p)
+
+t1=TEXT(26,13,'EA 2007',/DATA,COLOR="Black",FONT_SIZE=10,TARGET=p,ORIENTATION=90)
+t2=TEXT(39,13,'FR 2003',/DATA,COLOR="Blue",FONT_SIZE=10,TARGET=p,ORIENTATION=90)
+t3=TEXT(46,13,'US 1980',/DATA,COLOR="Green",FONT_SIZE=10,TARGET=p,ORIENTATION=90)
+t4=TEXT(94,13,'RU 2010',/DATA,COLOR="Red",FONT_SIZE=10,TARGET=p,ORIENTATION=90)
+
+w4.Save,'./PLOTS/PLOT_'+STAT+'_CDF_WORLD_SCEN_LAND-CORR.pdf',BITMAP=1,PAGE_SIZE="A4"
+
+
+
+
+STOP
+END
